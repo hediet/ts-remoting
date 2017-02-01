@@ -1,0 +1,15 @@
+{
+  "name": "hediet-remoting",
+  "version": "1.0.10",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "hediet-framework": "file:/Henning/Coding/Web/hediet-framework"
+  },
+  "typings": "dist/index"
+}

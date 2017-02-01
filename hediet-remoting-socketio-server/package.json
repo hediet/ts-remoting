@@ -1,0 +1,18 @@
+{
+  "name": "hediet-remoting-socketio-server",
+  "version": "1.0.2",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "hediet-framework": "file:/Henning/Coding/Web/hediet-framework",
+    "hediet-remoting": "file:../common",
+    "socket.io": "^1.7.2",
+    "@types/socket.io": "^1.4.27"
+  },
+  "typings": "dist/index"
+}

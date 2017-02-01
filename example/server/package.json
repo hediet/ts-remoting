@@ -1,0 +1,9 @@
+{
+	"name": "template",
+	"version": "0.1.0",
+	"dependencies": {
+		"example-common": "*",
+		"hediet-remoting": "*",
+		"hediet-remoting-socketio-server": "*"
+	}
+}
