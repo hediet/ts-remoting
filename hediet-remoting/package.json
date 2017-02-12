@@ -2,14 +2,15 @@
   "name": "hediet-remoting",
   "version": "1.0.10",
   "description": "",
-  "main": "dist/index.js",
+    "main": "dist/index.js",
+  "typings": "dist/index",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "prepublish": "rmdir dist /S /Q && tsc"
   },
-  "author": "",
+  "repository": "hediet/ts-remoting",
+  "author": "Henning Dieterichs",
   "license": "MIT",
   "dependencies": {
-    "hediet-framework": "file:/Henning/Coding/Web/hediet-framework"
-  },
-  "typings": "dist/index"
+    "hediet-framework": "^1.0.3"
+  }
 }

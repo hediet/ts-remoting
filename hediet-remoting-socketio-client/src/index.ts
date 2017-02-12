@@ -1,6 +1,5 @@
 import * as io from "socket.io-client";
-import { Message, MessageStream, StreamChannel, getProxy, ClassInstanceObjectInfo, remotable, ChannelListener, RemotingServer } from "hediet-remoting";
-import { Promise as Task } from "hediet-framework/dist/Promises";
+import { Message, MessageStream, StreamChannel, getProxy, remotable, ChannelListener, RemotingServer } from "hediet-remoting";
 
 export class ClientSocketIOStream implements MessageStream {
 
@@ -31,7 +30,7 @@ export class ClientSocketIOStream implements MessageStream {
 
 	public write(message: Message): PromiseLike<void> {
 		this.socket.send(message);
-		return Task.resolve();
+		return Promise.resolve();
 	}
 }
 

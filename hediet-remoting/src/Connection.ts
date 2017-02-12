@@ -1,3 +1,4 @@
+/*
 import { CancellationToken, Promise } from "hediet-framework/dist/promises";
 import { Disposable } from "hediet-framework/dist/disposable";
 import { Request, RequestResult, RequestId, Message } from "./DataTypes";
@@ -100,7 +101,7 @@ class Connection {
 
 
 
-
+*/
 
 
 /*

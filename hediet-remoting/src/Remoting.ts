@@ -1,5 +1,5 @@
-import { Promise as Task, CancellationToken } from "hediet-framework/dist/Promises";
-import * as _ from "hediet-framework/dist/Underscore";
+import { CancellationToken } from "hediet-framework/api/Cancellation";
+import * as _ from "hediet-framework/api/Underscore";
 import { Channel, ChannelListener } from "./Channel";
 import { Request, RequestId, RequestResult } from "./DataTypes";
 
@@ -38,7 +38,9 @@ export interface ServiceMethodInfo {
 	readonly name: string;
 }
 
-export interface ServiceInfo {
+export interface ServiceInfo<T> {
+	readonly _service_info_brand?: T; // to store T
+	readonly defaultRemoteId: string|undefined;
 	readonly methods: ReadonlyArray<ServiceMethodInfo>;
 }
 
@@ -46,21 +48,26 @@ export interface ServiceMethodReflector extends ServiceMethodInfo {
 	call(target: any, args: any[]): PromiseLike<any>|null;
 }
 
-export interface ServiceReflector extends ServiceInfo {
+export interface ServiceReflector<T> extends ServiceInfo<T> {
 	readonly methods: ReadonlyArray<ServiceMethodReflector>;
 	getMethod(methodName: string): ServiceMethodReflector|undefined;
 }
 
-function serializeServiceInfo(reflector: ServiceInfo): ServiceInfo {
-	const serviceInfo: ServiceInfo = { methods: reflector.methods.map(m => ({ name: m.name, isOneWay: m.isOneWay }) as ServiceMethodInfo) };
+function serializeServiceInfo<T>(reflector: ServiceInfo<T>): ServiceInfo<T> {
+	const serviceInfo: ServiceInfo<T> = { 
+		methods: reflector.methods.map(m => ({ name: m.name, isOneWay: m.isOneWay }) as ServiceMethodInfo),
+		defaultRemoteId: reflector.defaultRemoteId
+	};
 	return serviceInfo;
 }
 
-export class DecoratedServiceReflector implements ServiceReflector {
+export class DecoratedServiceReflector<T> implements ServiceReflector<T> {
 
+	readonly _service_info_brand: T;
 	readonly methods: ServiceMethodReflector[];
+	get defaultRemoteId() { return this._class.name; }
 
-	constructor(private readonly _class: Function) {
+	constructor(private readonly _class: { new(): T } | Function) {
 		const remotableFunctions = ((_class.prototype as any)["remotableFunctions"] as ServiceMethodInfo[]) || [];
 		this.methods = remotableFunctions.map(f => new DecoratedMethodInfo(f));
 	}
@@ -85,13 +92,13 @@ class DecoratedMethodInfo implements ServiceMethodReflector {
 	}
 }
 
-export function remotable({ isOneWay = false } = {}) {
+export function remotable(args: { isOneWay?: boolean } = {}) {
 	return function(target: any, methodName: string) {
 		let remotableFunctions = target["remotableFunctions"] as ServiceMethodInfo[];
 		if (!remotableFunctions)
 			target["remotableFunctions"] = (remotableFunctions = []);
 
-		remotableFunctions.push({ name: methodName, isOneWay: isOneWay });
+		remotableFunctions.push({ name: methodName, isOneWay: args.isOneWay!! });
 	}
 }
 
@@ -120,18 +127,21 @@ const remotingServerId = "$remotingServer";
 const getObjectInfoMethodName = "getObjectInfo";
 const getObjectInfoMethod = ServiceMethod.compose(remotingServerId, getObjectInfoMethodName);
 
-export async function getRemoteServiceInfo(remoteId: string, channel: Channel): Task<ServiceInfo> {
+export async function getRemoteServiceInfo<T>(channel: Channel, remoteId: string): Promise<ServiceInfo<T>> {
 	const objectInfoMsg = await channel.sendRequest({ method: getObjectInfoMethod, params: [remoteId] });
-	const info = objectInfoMsg.result as ServiceInfo;
+	const info = objectInfoMsg.result as ServiceInfo<T>;
 	return info;
 }
 
-export function getProxy<T>(remoteId: string, channel: Channel, info: ServiceInfo): T {
+export function getProxy<T>(channel: Channel, info: ServiceInfo<T>, remoteId?: string): T {
 	const result: { [name: string]: any } = {};
 
+	const actualRemoteId = remoteId || info.defaultRemoteId;
+	if (!actualRemoteId) throw "remoteId and info.defaultRemoteId not set!";
+
 	for (const i of info.methods) {
-		result[i.name] = async function(...args: any[]): Task<undefined | any> {
-			const msg = { method: ServiceMethod.compose(remoteId, i.name), params: args };
+		result[i.name] = async function(...args: any[]): Promise<undefined | any> {
+			const msg = { method: ServiceMethod.compose(actualRemoteId, i.name), params: args };
 			if (i.isOneWay) {
 				await channel.sendNotification(msg);
 				return undefined;
@@ -146,25 +156,28 @@ export function getProxy<T>(remoteId: string, channel: Channel, info: ServiceInf
 }
 
 export class RemotingServer implements ChannelListener {
-	private services: { [id: string]: [ServiceReflector, any] } = {};
+	private services: { [id: string]: [ServiceReflector<any>, any] } = {};
 
 	constructor() {
 		const services = this.services;
 
 		class RemotingManagerService {
 			@remotable()
-			public async [getObjectInfoMethodName](id: string): Task<ServiceInfo> {
+			public async [getObjectInfoMethodName](id: string): Promise<ServiceInfo<any>> {
 				const reflector = services[id][0];
 				return serializeServiceInfo(reflector);
 			}
 		}
 
-		this.registerObject(remotingServerId, new DecoratedServiceReflector(RemotingManagerService), new RemotingManagerService());
+		this.registerObject(new DecoratedServiceReflector(RemotingManagerService), new RemotingManagerService(), remotingServerId);
 	}
 
 
-	public registerObject(id: string, reflector: ServiceReflector, target: any) {
-		this.services[id] = [ reflector, target ];
+	public registerObject<T, X extends T>(reflector: ServiceReflector<T>, target: X, remoteId?: string) {
+		const actualRemoteId = remoteId || reflector.defaultRemoteId;
+		if (!actualRemoteId) throw "remoteId and info.defaultRemoteId not set!";
+
+		this.services[actualRemoteId] = [ reflector, target ];
 	}
 
 	private getServiceMethod(request: Request) {
@@ -174,7 +187,7 @@ export class RemotingServer implements ChannelListener {
 		return [ method, targetObj ];
 	}
 
-	public async handleRequest(request: Request, requestId: RequestId, token: CancellationToken): Task<RequestResult<any, any>> {
+	public async handleRequest(request: Request, requestId: RequestId, token: CancellationToken): Promise<RequestResult<any, any>> {
 		const [ method, targetObj ] = this.getServiceMethod(request)!;
 		if (method.isOneWay) throw "Method must not be one way";
 
@@ -182,7 +195,7 @@ export class RemotingServer implements ChannelListener {
 		return { result, error: undefined };
 	}
 
-	public async handleNotification(request: Request, token: CancellationToken): Task<void> {
+	public async handleNotification(request: Request, token: CancellationToken): Promise<void> {
 		const [ serviceMethod, targetObj ] = this.getServiceMethod(request)!;
 		if (!serviceMethod.isOneWay) throw "Method must be one way";
 

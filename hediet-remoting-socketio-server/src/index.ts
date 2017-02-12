@@ -1,6 +1,6 @@
 import * as io from "socket.io";
-import { Message, MessageStream, StreamChannel, getProxy, ClassInstanceObjectInfo, remotable, ChannelListener, RemotingServer } from "hediet-remoting";
-import { Promise as Task } from "hediet-framework/dist/Promises";
+import http = require("http");
+import { Message, MessageStream, StreamChannel, getProxy, remotable, ChannelListener, RemotingServer } from "hediet-remoting";
 
 export class ServerSocketIOStream implements MessageStream {
 
@@ -31,14 +31,17 @@ export class ServerSocketIOStream implements MessageStream {
 
 	public write(message: Message): PromiseLike<void> {
 		this.socket.send(message);
-		return Task.resolve();
+		return Promise.resolve();
 	}
 }
 
 export class SocketIOServer {
 	private readonly server: SocketIO.Server;
 
-	constructor(port: number, private readonly onConnectCallback: (stream: MessageStream, socket: SocketIO.Socket) => void) {
+	constructor(port: number, private readonly onConnectCallback: (stream: MessageStream, socket: SocketIO.Socket) => void, opts: { host?: string } = {}) {
+		const server = http.createServer();
+		server.listen(port, opts.host);
+
 		this.server = io(port);
 		this.server.on("connection", (socket) => {
 			const stream = new ServerSocketIOStream(socket);

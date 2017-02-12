@@ -1,18 +1,19 @@
 {
   "name": "hediet-remoting-socketio-server",
-  "version": "1.0.2",
+  "version": "1.0.10",
   "description": "",
   "main": "dist/index.js",
+  "typings": "dist/index",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "prepublish": "rmdir dist /S /Q && tsc"
   },
-  "author": "",
+  "repository": "hediet/ts-remoting",
+  "author": "Henning Dieterichs",
   "license": "MIT",
   "dependencies": {
-    "hediet-framework": "file:/Henning/Coding/Web/hediet-framework",
-    "hediet-remoting": "file:../common",
+    "hediet-remoting": "^1.0.10",
     "socket.io": "^1.7.2",
-    "@types/socket.io": "^1.4.27"
-  },
-  "typings": "dist/index"
+    "@types/socket.io": "^1.4.27",
+    "@types/node": "^7.0.5"
+  }
 }

@@ -1,6 +1,6 @@
 import { Message, Request, RequestId, RequestMessage, RequestResult, ResponseMessage, isRequestOrNotification } from './DataTypes';
-import { Disposable, dispose } from "hediet-framework/dist/disposable";
-import { CancellationToken, Promise as Task } from 'hediet-framework/dist/Promises';
+import { Disposable, dispose } from "hediet-framework/api/Disposable";
+import { CancellationToken } from "hediet-framework/api/Cancellation";
 
 export interface Channel {
 	sendRequest(request: Request, messageIdCallback?: (requestId: RequestId) => Disposable|Disposable[]|undefined): PromiseLike<RequestResult<any, any>>;
@@ -30,7 +30,7 @@ export class ChannelListenerAdapter implements Channel {
 			return result;
 		}, error => {
 			dispose(disposables);
-			return Task.reject(error);
+			return Promise.reject(error);
 		});
 	}
 
@@ -74,7 +74,7 @@ export class StreamChannel implements Channel {
 		this.stream.setReadCallback((message) => this.processMessage(message));
 	}
 
-	private async processMessage(message: Message): Task<void> {
+	private async processMessage(message: Message): Promise<void> {
 		if (isRequestOrNotification(message)) {
 			if (!this.listener) {
 				// ignore message
@@ -108,7 +108,7 @@ export class StreamChannel implements Channel {
 		if (messageIdCallback)
 			disposables = messageIdCallback(msg.id!);
 
-		return new Task<RequestResult<any, any>>((resolve, reject) => {
+		return new Promise<RequestResult<any, any>>((resolve, reject) => {
 
 			this.unprocessedResponses["" + msg.id] = (response) => {
 				dispose(disposables);

@@ -9,7 +9,7 @@
 		"noImplicitThis": true,
 		"strictNullChecks": true,
 		"experimentalDecorators": true,
-		"noLib": false,
+		"lib": ["dom", "es6"],
 		"jsx": "react",
 		"alwaysStrict": true,
 		"sourceMap": true,
