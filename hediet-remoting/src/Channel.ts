@@ -1,27 +1,83 @@
-import { Message, Request, RequestId, RequestMessage, RequestResult, ResponseMessage, isRequestOrNotification } from './DataTypes';
-import { Disposable, dispose } from "hediet-framework/api/Disposable";
+import { IDisposable, dispose } from "hediet-framework/api/Disposable";
 import { CancellationToken } from "hediet-framework/api/Cancellation";
+import { Message, RequestId, RequestMessage, ErrorInfo } from './DataTypes';
 
-export interface Channel {
-	sendRequest(request: Request, messageIdCallback?: (requestId: RequestId) => Disposable|Disposable[]|undefined): PromiseLike<RequestResult<any, any>>;
-	sendNotification(notification: Request): PromiseLike<void>;
+export interface Request {
+	method: string;
+	params: any;
 }
 
+export interface Response<TResult, TErrorData> {
+	result: TResult|undefined;
+	error: ErrorInfo<TErrorData>|undefined;
+}
+
+/**
+ * A channel has methods to send requests and notifications.
+ * A request gets a response back, a notification does not.
+ */
+export interface Channel {
+	/**
+	 * Sends a request.
+	 * @param request - The request to send.
+	 * @param messageIdCallback - An optional callback that is called before the request is sent.
+	 * 			The passed request id can be used to track the request.
+	 * @return A promise of an untyped response. Fails if the request could not be delivered or if an response could not be received.
+	 */
+	sendRequest(request: Request, messageIdCallback?: (requestId: RequestId) => void): PromiseLike<Response<any, any>>;
+
+	/**
+	 * Sends a notification. 
+	 * @return A promise that is fulfilled as soon as the notification has been sent successfully. 
+	 * 			Fails if the notification could not be delivered.
+	 */
+	sendNotification(notification: Request): PromiseLike<void>;
+
+	/**
+	 * Returns human readable information of this channel.
+	 */
+	toString(): string;
+}
+
+
+export function sendRequestWithDisposer(channel: Channel, request: Request, messageIdCallback: (requestId: RequestId) => IDisposable|IDisposable[]|undefined) {
+	let disposables: IDisposable|IDisposable[]|undefined = undefined;
+
+	return channel.sendRequest(request, (requestId) => {
+			disposables = messageIdCallback(requestId);
+		}).then((result) => {
+			dispose(disposables);
+			return Promise.reject(result);
+		}, (reason) => {
+			dispose(disposables);
+			return Promise.reject(reason);
+		});
+}
+
+
+/**
+ * A channel listener is an object that can handle requests and notifications.
+ * Implementations must respond to all requests.
+ */
 export interface ChannelListener {
-	handleRequest(request: Request, requestId: RequestId, token: CancellationToken): PromiseLike<RequestResult<any, any>>;
+	/**
+	 * Handles an incoming request.
+	 */
+	handleRequest(request: Request, requestId: RequestId, token: CancellationToken): PromiseLike<Response<any, any>>;
 	handleNotification(request: Request, token: CancellationToken): PromiseLike<void>;
 }
 
+/**
+ * Implements a channel by using a channel listener.
+ */
 export class ChannelListenerAdapter implements Channel {
 	private id: number;
 
-	constructor(private readonly channelListener: ChannelListener) {
-	}
+	constructor(private readonly channelListener: ChannelListener) {}
 
-	public sendRequest(request: Request, messageIdCallback?: (requestId: RequestId) => Disposable|Disposable[]|undefined): PromiseLike<RequestResult<any, any>> {
-
+	public sendRequest(request: Request, messageIdCallback?: (requestId: RequestId) => IDisposable|IDisposable[]|undefined): PromiseLike<Response<any, any>> {
 		const curId = this.id++;
-		let disposables: Disposable|Disposable[]|undefined = undefined;
+		let disposables: IDisposable|IDisposable[]|undefined = undefined;
 		if (messageIdCallback)
 			disposables = messageIdCallback(curId);
 
@@ -36,97 +92,5 @@ export class ChannelListenerAdapter implements Channel {
 
 	public sendNotification(notification: Request): PromiseLike<void> {
 		return this.channelListener.handleNotification(notification, CancellationToken.empty);
-	}
-}
-
-export interface MessageStream {
-	setReadCallback(callback: ((readMessage: Message) => void)|undefined): void;
-	write(message: Message): PromiseLike<void>;
-}
-
-export class StreamLogger implements MessageStream {
-	constructor(private readonly baseStream: MessageStream) {}
-
-	public setReadCallback(callback: ((readMessage: Message) => void)|undefined) {
-		if (callback === undefined) {
-			this.baseStream.setReadCallback(undefined);
-			return;
-		}
-
-		this.baseStream.setReadCallback((readMessage) => {
-			console.log("< " + JSON.stringify(readMessage));
-			callback(readMessage);
-		});
-	}
-
-	public write(message: Message): PromiseLike<void> {
-		console.log("> " + JSON.stringify(message));
-		return this.baseStream.write(message);
-	}
-}
-
-export class StreamChannel implements Channel {
-	
-	private readonly unprocessedResponses: { [id: string]: (response: ResponseMessage) => void } = {};
-	private requestId = 0;
-
-	constructor(private readonly stream: MessageStream, private readonly listener: ChannelListener|undefined) {
-		this.stream.setReadCallback((message) => this.processMessage(message));
-	}
-
-	private async processMessage(message: Message): Promise<void> {
-		if (isRequestOrNotification(message)) {
-			if (!this.listener) {
-				// ignore message
-				return;
-			}
-
-			if (message.id === undefined) {
-				this.listener.handleNotification(message, CancellationToken.empty);
-			}
-			else {
-				const result = await this.listener.handleRequest(message, message.id, CancellationToken.empty);
-				const responseMsg: ResponseMessage = { id: message.id, result: result.result, error: result.error };
-				this.stream.write(responseMsg);
-			}
-		}
-		else { // response
-			const callback = this.unprocessedResponses["" + message.id];
-			delete this.unprocessedResponses["" + message.id];
-			callback(message);
-		}
-	}
-
-	private newRequestId(): RequestId {
-		return this.requestId++;
-	}
-
-	public sendRequest(request: Request, messageIdCallback?: (requestId: RequestId) => Disposable|Disposable[]|undefined): PromiseLike<RequestResult<any, any>> {
-		const msg = { id: this.newRequestId(), method: request.method, params: request.params };
-
-		let disposables: Disposable|Disposable[]|undefined = undefined;
-		if (messageIdCallback)
-			disposables = messageIdCallback(msg.id!);
-
-		return new Promise<RequestResult<any, any>>((resolve, reject) => {
-
-			this.unprocessedResponses["" + msg.id] = (response) => {
-				dispose(disposables);
-				resolve(response);
-			};
-
-			this.stream.write(msg).then(undefined, reason => 
-				{
-					delete this.unprocessedResponses["" + msg.id];
-					dispose(disposables);
-					reject(reason);
-				});
-		});
-	}
-
-	public sendNotification(notification: Request): PromiseLike<void> {
-		const msg: Message = { id: undefined, method: notification.method, params: notification.params };
-		
-		return this.stream.write(msg);
 	}
 }

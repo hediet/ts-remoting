@@ -1,6 +1,6 @@
 {
   "name": "hediet-remoting-socketio-server",
-  "version": "1.0.10",
+  "version": "1.1.0",
   "description": "",
   "main": "dist/index.js",
   "typings": "dist/index",
@@ -11,7 +11,7 @@
   "author": "Henning Dieterichs",
   "license": "MIT",
   "dependencies": {
-    "hediet-remoting": "^1.0.10",
+    "hediet-remoting": "^1.1.0",
     "socket.io": "^1.7.2",
     "@types/socket.io": "^1.4.27",
     "@types/node": "^7.0.5"

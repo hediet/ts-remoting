@@ -4,6 +4,10 @@
 	"dependencies": {
 		"example-common": "*",
 		"hediet-remoting": "*",
-		"hediet-remoting-socketio-server": "*"
+		"hediet-remoting-socketio-server": "*",
+		"mobx": "^3.1.0"
+	},
+	"scripts": {
+		"dev": "tsc --watch"
 	}
 }

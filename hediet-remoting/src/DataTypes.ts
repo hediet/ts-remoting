@@ -3,13 +3,42 @@
 export interface ErrorCode extends Number { }
 
 export module ErrorCode {
+	/**
+	 * Invalid JSON was received by the server.
+	 * An error occurred on the server while parsing the JSON text.
+	 */
 	export const parseError = -32700 as ErrorCode;
+
+	/**
+	 * The JSON sent is not a valid Request object.
+	 */
 	export const invalidRequest = -32600 as ErrorCode;
+
+	/**
+	 * The method does not exist/is not available.
+	 */
 	export const methodNotFound = -32601 as ErrorCode;
+
+	/**
+	 * Invalid method parameter(s).
+	 */
 	export const invalidParams = -32602 as ErrorCode;
+
+	/**
+	 * 	Internal JSON-RPC error.
+	 */
 	export const internalError = -32603 as ErrorCode;
-	export const serverErrorStart = -32099 as ErrorCode;
-	export const serverErrorEnd = -32000 as ErrorCode;
+
+	export function serverError(code: number): ErrorCode {
+		if (!((-32099 <= code) && (code <= -32000))) throw new Error("Invalid range.");
+
+		return code as ErrorCode;
+	}
+
+	export function applicationError(code: number): ErrorCode {
+		// todo implement proper checks.
+		return code as ErrorCode;
+	}
 }
 
 export interface Error {
@@ -48,12 +77,3 @@ export interface ErrorInfo<TData> {
 	data: TData;
 }
 
-export interface Request {
-	method: string;
-	params: any;
-}
-
-export interface RequestResult<TResult, TErrorData> {
-	result: TResult|undefined;
-	error: ErrorInfo<TErrorData>|undefined;
-}

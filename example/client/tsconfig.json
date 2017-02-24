@@ -6,6 +6,7 @@
 		"strictNullChecks": true,
 		"sourceMap": true,
 		"jsx": "react",
+		"lib": [ "dom", "es6" ],
 		"outDir": "dist",
 		"experimentalDecorators": true
 	},

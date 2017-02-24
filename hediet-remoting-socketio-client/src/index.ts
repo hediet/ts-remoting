@@ -1,44 +1,23 @@
 import * as io from "socket.io-client";
-import { Message, MessageStream, StreamChannel, getProxy, remotable, ChannelListener, RemotingServer } from "hediet-remoting";
+import { Message, BaseMessageStream, StreamChannel, RemotingServer, Channel, createProxy, ServiceInfo, ServiceReflector, DecoratedServiceReflector } from "hediet-remoting";
 
-export class ClientSocketIOStream implements MessageStream {
-
-	private unreadMessages: Message[] = [];
-	private onMessageCallback: ((readMessage: Message) => void) | undefined;
-
+export class ClientSocketIOStream extends BaseMessageStream {
 	constructor(public readonly socket: SocketIOClient.Socket) {
+		super();
 		socket.on("message", (message: Message) => this.onMessage(message));
-	}
-
-	private onMessage(message: Message) {
-		if (this.onMessageCallback)
-			this.onMessageCallback(message);
-		else
-			this.unreadMessages.push(message);
-	}
-
-	public setReadCallback(callback: ((readMessage: Message) => void) | undefined) {
-		this.onMessageCallback = callback;
-		
-		if (!callback) return;
-
-		while (this.unreadMessages.length > 0) {
-			const msg = this.unreadMessages.shift()!;
-			callback(msg);
-		}
+		socket.on("disconnect", () => this.resolveClosedPromise());
 	}
 
 	public write(message: Message): PromiseLike<void> {
 		this.socket.send(message);
 		return Promise.resolve();
 	}
+
+	public toString(): string {
+		return `client-socket-io@${this.socket.io.uri}`;
+	}
 }
 
-export class SocketIOClient {
-	public readonly stream: ClientSocketIOStream;
-
-	constructor(uri: string) {
-		const socket = io(uri);
-		this.stream = new ClientSocketIOStream(socket);
-	}
+export function connect(uri: string): ClientSocketIOStream {
+	return new ClientSocketIOStream(io(uri, { reconnection: false }));
 }

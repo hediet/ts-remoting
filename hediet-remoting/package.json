@@ -1,6 +1,6 @@
 {
   "name": "hediet-remoting",
-  "version": "1.0.10",
+  "version": "1.1.0",
   "description": "",
     "main": "dist/index.js",
   "typings": "dist/index",
@@ -11,6 +11,6 @@
   "author": "Henning Dieterichs",
   "license": "MIT",
   "dependencies": {
-    "hediet-framework": "^1.0.3"
+    "hediet-framework": "^1.1.0"
   }
 }

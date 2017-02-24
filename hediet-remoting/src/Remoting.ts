@@ -1,106 +1,8 @@
 import { CancellationToken } from "hediet-framework/api/Cancellation";
-import * as _ from "hediet-framework/api/Underscore";
-import { Channel, ChannelListener } from "./Channel";
-import { Request, RequestId, RequestResult } from "./DataTypes";
-
-export interface IRegistryOf<T> {
-	register(model: T): void;
-}
-
-export class WebsocketServer<TClientModel> {
-
-	registerServerModel(serverModel: IRegistryOf<TClientModel>, serverModelId: string) {
-		
-	}
-}
-
-
-export interface Address {
-	port: number;
-	host: string;
-	extensionId: string;
-}
-
-export class WebsocketClient<TServerModel> {
-
-	constructor(server: Address, clientModel: IRegistryOf<TServerModel>, serverModelId: string) {
-
-	}
-}
-
-
-
-
-
-
-export interface ServiceMethodInfo {
-	readonly isOneWay: boolean;
-	readonly name: string;
-}
-
-export interface ServiceInfo<T> {
-	readonly _service_info_brand?: T; // to store T
-	readonly defaultRemoteId: string|undefined;
-	readonly methods: ReadonlyArray<ServiceMethodInfo>;
-}
-
-export interface ServiceMethodReflector extends ServiceMethodInfo {
-	call(target: any, args: any[]): PromiseLike<any>|null;
-}
-
-export interface ServiceReflector<T> extends ServiceInfo<T> {
-	readonly methods: ReadonlyArray<ServiceMethodReflector>;
-	getMethod(methodName: string): ServiceMethodReflector|undefined;
-}
-
-function serializeServiceInfo<T>(reflector: ServiceInfo<T>): ServiceInfo<T> {
-	const serviceInfo: ServiceInfo<T> = { 
-		methods: reflector.methods.map(m => ({ name: m.name, isOneWay: m.isOneWay }) as ServiceMethodInfo),
-		defaultRemoteId: reflector.defaultRemoteId
-	};
-	return serviceInfo;
-}
-
-export class DecoratedServiceReflector<T> implements ServiceReflector<T> {
-
-	readonly _service_info_brand: T;
-	readonly methods: ServiceMethodReflector[];
-	get defaultRemoteId() { return this._class.name; }
-
-	constructor(private readonly _class: { new(): T } | Function) {
-		const remotableFunctions = ((_class.prototype as any)["remotableFunctions"] as ServiceMethodInfo[]) || [];
-		this.methods = remotableFunctions.map(f => new DecoratedMethodInfo(f));
-	}
-
-	getMethod(methodName: string): ServiceMethodReflector|undefined {
-		return _.find(this.methods, m => m.name === methodName);
-	}
-}
-
-class DecoratedMethodInfo implements ServiceMethodReflector {
-	public readonly isOneWay: boolean;
-	public readonly name: string;
-
-	constructor(methodInfo: ServiceMethodInfo) {
-		this.isOneWay = methodInfo.isOneWay;
-		this.name = methodInfo.name;
-	}
-
-	public call(target: any, args: any[]): PromiseLike<any>|null {
-		const func = target[this.name] as Function;
-		return func.call(target, ...args);
-	}
-}
-
-export function remotable(args: { isOneWay?: boolean } = {}) {
-	return function(target: any, methodName: string) {
-		let remotableFunctions = target["remotableFunctions"] as ServiceMethodInfo[];
-		if (!remotableFunctions)
-			target["remotableFunctions"] = (remotableFunctions = []);
-
-		remotableFunctions.push({ name: methodName, isOneWay: args.isOneWay!! });
-	}
-}
+import { Maybe, result, error, isError, isResult } from "hediet-framework/api/Containers";
+import { Channel, ChannelListener, Request, Response } from "./Channel";
+import { RequestId, ErrorCode, ErrorInfo } from "./DataTypes";
+import { DecoratedServiceReflector, requestHandler, serializeServiceInfo, ServiceInfo, ServiceReflector, ServiceMethodReflector } from "./ServiceInfo";
 
 export interface ServiceMethod {
 	serviceId: string;
@@ -133,15 +35,24 @@ export async function getRemoteServiceInfo<T>(channel: Channel, remoteId: string
 	return info;
 }
 
-export function getProxy<T>(channel: Channel, info: ServiceInfo<T>, remoteId?: string): T {
-	const result: { [name: string]: any } = {};
+class Proxy {
+	constructor(private readonly _channel: Channel, private readonly _remoteId: string) { }
 
+	public toString() {
+		return `${this._remoteId}@${this._channel.toString()}`;
+	}
+}
+
+export function createProxy<T>(channel: Channel, info: ServiceInfo<T>, remoteId?: string): T {
 	const actualRemoteId = remoteId || info.defaultRemoteId;
 	if (!actualRemoteId) throw "remoteId and info.defaultRemoteId not set!";
 
+	const result: { [name: string]: any } = new Proxy(channel, actualRemoteId);
+
 	for (const i of info.methods) {
+		const methodName = ServiceMethod.compose(actualRemoteId, i.name);
 		result[i.name] = async function(...args: any[]): Promise<undefined | any> {
-			const msg = { method: ServiceMethod.compose(actualRemoteId, i.name), params: args };
+			const msg = { method: methodName, params: args };
 			if (i.isOneWay) {
 				await channel.sendNotification(msg);
 				return undefined;
@@ -162,7 +73,7 @@ export class RemotingServer implements ChannelListener {
 		const services = this.services;
 
 		class RemotingManagerService {
-			@remotable()
+			@requestHandler()
 			public async [getObjectInfoMethodName](id: string): Promise<ServiceInfo<any>> {
 				const reflector = services[id][0];
 				return serializeServiceInfo(reflector);
@@ -172,33 +83,63 @@ export class RemotingServer implements ChannelListener {
 		this.registerObject(new DecoratedServiceReflector(RemotingManagerService), new RemotingManagerService(), remotingServerId);
 	}
 
-
 	public registerObject<T, X extends T>(reflector: ServiceReflector<T>, target: X, remoteId?: string) {
 		const actualRemoteId = remoteId || reflector.defaultRemoteId;
-		if (!actualRemoteId) throw "remoteId and info.defaultRemoteId not set!";
+		if (!actualRemoteId) throw new Error("remoteId and info.defaultRemoteId not set.");
 
 		this.services[actualRemoteId] = [ reflector, target ];
 	}
 
-	private getServiceMethod(request: Request) {
-		const { serviceId, serviceMethod } = ServiceMethod.parse(request.method)!;
-		const [ reflector, targetObj ] = this.services[serviceId];
-		const method = reflector.getMethod(serviceMethod);
-		return [ method, targetObj ];
+	public registerObjectByClass<T, X extends T>(clazz: { new(): T } | Function, target: X, remoteId?: string) {
+		this.registerObject(new DecoratedServiceReflector(clazz), target, remoteId);
 	}
 
-	public async handleRequest(request: Request, requestId: RequestId, token: CancellationToken): Promise<RequestResult<any, any>> {
-		const [ method, targetObj ] = this.getServiceMethod(request)!;
-		if (method.isOneWay) throw "Method must not be one way";
+	private getServiceMethod(request: Request): Maybe<{ method: ServiceMethodReflector, targetObj: any }, ErrorInfo<any>> {
+		const parseResult = ServiceMethod.parse(request.method);
+		if (!parseResult)
+			return error({ code: ErrorCode.methodNotFound, message: `Method '${request.method}' has invalid format.`, data: undefined });
 
-		const result = await method.call(targetObj, request.params);
-		return { result, error: undefined };
+		const { serviceId, serviceMethod } = parseResult;
+
+		if (!(serviceId in this.services))
+			return error({ code: ErrorCode.methodNotFound, message: `Service with id '${serviceId}' is not available.`, data: undefined });
+
+		const [ reflector, targetObj ] = this.services[serviceId];
+
+		const method = reflector.getMethod(serviceMethod);
+		if (!method) 
+			return error({ code: ErrorCode.methodNotFound, message: `Service with id '${serviceId}' cannot handle method ${serviceMethod}.`, data: undefined });
+
+		return result({ method, targetObj });
+	}
+
+	public async handleRequest(request: Request, requestId: RequestId, token: CancellationToken): Promise<Response<any, any>> {
+		const result = this.getServiceMethod(request);
+
+		if (isError(result)) return { result: undefined, error: result.value };
+
+		const { method, targetObj } = result.value;
+		if (method.isOneWay) 
+			return { result: undefined, error: { code: ErrorCode.invalidRequest, message: "Method can only handle notifications.", data: undefined } };
+
+		const response = await method.call(targetObj, request.params);
+		
+		return response!; // todo assert response !== null
 	}
 
 	public async handleNotification(request: Request, token: CancellationToken): Promise<void> {
-		const [ serviceMethod, targetObj ] = this.getServiceMethod(request)!;
-		if (!serviceMethod.isOneWay) throw "Method must be one way";
+		const result = this.getServiceMethod(request);
 
-		serviceMethod.call(targetObj, request.params);
+		if (isError(result)) {
+			return; // todo
+		}
+
+		const { method, targetObj } = result.value;
+		if (!method.isOneWay) {
+			return; // todo
+		}
+
+		const response = method.call(targetObj, request.params);
+		// todo assert response === null
 	}
 }

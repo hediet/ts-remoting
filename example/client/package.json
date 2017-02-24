@@ -2,7 +2,7 @@
 	"name": "template",
 	"version": "0.1.0",
 	"scripts": {
-		"bundle-dev": "webpack-dev-server -d --hot --inline",
+		"dev": "webpack-dev-server -d --hot --inline",
 		"bundle": "webpack"
 	},
 	"dependencies": {
